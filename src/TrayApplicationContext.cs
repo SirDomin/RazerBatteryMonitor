@@ -35,7 +35,7 @@ namespace RazerBatteryMonitor
             menu.Items.Add("Zakończ", null, delegate { Exit(); });
 
             mouseIcon = CreateIcon(DeviceKind.Mouse, "Mysz Razer · oczekiwanie na odczyt", menu);
-            headsetIcon = CreateIcon(DeviceKind.Headset, "Słuchawki Razer · oczekiwanie na odczyt", menu);
+            headsetIcon = CreateIcon(DeviceKind.Headset, "Słuchawki · oczekiwanie na odczyt", menu);
             taskbarStatus = new TaskbarStatusForm(ShowDashboard, menu);
             taskbarStatus.AnchorAvailabilityChanged += delegate { UpdateFallbackIconVisibility(); };
             timer = new System.Windows.Forms.Timer { Interval = 15000 };
@@ -80,9 +80,9 @@ namespace RazerBatteryMonitor
         private void UpdateIcons()
         {
             currentMouse = states.Where(delegate(DeviceState s) { return s.Kind == DeviceKind.Mouse && s.IsOnline && s.Level.HasValue; }).OrderBy(delegate(DeviceState s) { return s.Level.Value; }).FirstOrDefault();
-            currentHeadset = states.FirstOrDefault(delegate(DeviceState s) { return s.Kind == DeviceKind.Headset && s.IsOnline && s.Level.HasValue; });
+            currentHeadset = states.Where(delegate(DeviceState s) { return s.Kind == DeviceKind.Headset && s.IsOnline && s.Level.HasValue; }).OrderBy(delegate(DeviceState s) { return s.Level.Value; }).FirstOrDefault();
             SetIcon(mouseIcon, DeviceKind.Mouse, currentMouse, MouseTooltip());
-            SetIcon(headsetIcon, DeviceKind.Headset, currentHeadset, currentHeadset == null ? "Słuchawki Razer · brak danych" : Tooltip(currentHeadset));
+            SetIcon(headsetIcon, DeviceKind.Headset, currentHeadset, currentHeadset == null ? "Słuchawki · brak danych" : Tooltip(currentHeadset));
             taskbarStatus.UpdateStates(currentMouse, currentHeadset);
             UpdateFallbackIconVisibility();
         }

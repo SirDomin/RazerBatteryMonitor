@@ -56,9 +56,25 @@ internal static class ProtocolTests
         Assert(current != null && current.Status == "Charging", "current Synapse charging status");
     }
 
+    private static void SteelSeries()
+    {
+        byte[] request = SteelSeriesProtocol.BuildStatusRequest(64);
+        Assert(request.Length == 64 && request[0] == 0 && request[1] == 0xB0, "SteelSeries read-only status request");
+
+        SteelSeriesProtocol.Status charging = SteelSeriesProtocol.DecodeStatus(new byte[] { 0xB0, 3, 77, 1 }, 4);
+        Assert(charging.IsConnected && charging.Level == 77 && charging.IsCharging, "SteelSeries charging status");
+
+        SteelSeriesProtocol.Status battery = SteelSeriesProtocol.DecodeStatus(new byte[] { 0, 0xB0, 3, 55, 3 }, 5);
+        Assert(battery.IsConnected && battery.Level == 55 && !battery.IsCharging, "SteelSeries Windows report prefix");
+
+        SteelSeriesProtocol.Status offline = SteelSeriesProtocol.DecodeStatus(new byte[] { 0xB0, 0, 80, 0 }, 4);
+        Assert(!offline.IsConnected, "SteelSeries disconnected status");
+    }
+
     public static int Main()
     {
         Protocol();
+        SteelSeries();
         LogParsing();
         if (failures != 0) return 1;
         Console.WriteLine("All protocol and log parsing tests passed.");

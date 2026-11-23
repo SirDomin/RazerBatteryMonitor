@@ -8,6 +8,7 @@ $testExe = Join-Path $out 'RazerBatteryMonitor.Tests.exe'
 $sources = @(
     (Join-Path $root 'src\DeviceState.cs'),
     (Join-Path $root 'src\RazerProtocol.cs'),
+    (Join-Path $root 'src\SteelSeriesProtocol.cs'),
     (Join-Path $root 'src\SynapseLogReader.cs'),
     (Join-Path $root 'tests\ProtocolTests.cs')
 )

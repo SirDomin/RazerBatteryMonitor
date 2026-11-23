@@ -25,6 +25,7 @@ namespace RazerBatteryMonitor
 
         private readonly Action showDashboard;
         private readonly Timer placementTimer;
+        private readonly Timer zOrderTimer;
         private readonly Font valueFont;
         private readonly Bitmap mouseAsset;
         private readonly Bitmap headsetAsset;
@@ -33,7 +34,6 @@ namespace RazerBatteryMonitor
         private bool anchorAvailable;
         private Rectangle lastAnchor;
         private int anchorMisses;
-        private IntPtr taskbarOwner;
 
         internal event EventHandler AnchorAvailabilityChanged;
 
@@ -66,6 +66,9 @@ namespace RazerBatteryMonitor
             placementTimer = new Timer { Interval = 2000 };
             placementTimer.Tick += delegate { RefreshPlacement(); };
             placementTimer.Start();
+            zOrderTimer = new Timer { Interval = 100 };
+            zOrderTimer.Tick += delegate { KeepAboveTaskbar(); };
+            zOrderTimer.Start();
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }
@@ -126,16 +129,15 @@ namespace RazerBatteryMonitor
             int left = anchor.Left - Width - 3;
             int top = anchor.Top + Math.Max(0, (anchor.Height - Height) / 2);
             if (!Visible) Show();
-            EnsureTaskbarOwner();
             SetWindowPos(Handle, HwndTopmost, left, top, Width, Height, SwpNoActivate | SwpShowWindow);
         }
 
-        private void EnsureTaskbarOwner()
+        private void KeepAboveTaskbar()
         {
-            IntPtr taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
-            if (taskbar == IntPtr.Zero || taskbar == taskbarOwner) return;
-            NativeMethods.SetWindowLongPtr(Handle, NativeMethods.GwlpHwndParent, taskbar);
-            taskbarOwner = taskbar;
+            if (!Visible || lastAnchor.IsEmpty) return;
+            int left = lastAnchor.Left - Width - 3;
+            int top = lastAnchor.Top + Math.Max(0, (lastAnchor.Height - Height) / 2);
+            SetWindowPos(Handle, HwndTopmost, left, top, Width, Height, SwpNoActivate | SwpShowWindow);
         }
 
         private void SetAnchorAvailable(bool value)
@@ -304,6 +306,7 @@ namespace RazerBatteryMonitor
             if (disposing)
             {
                 placementTimer.Dispose();
+                zOrderTimer.Dispose();
                 valueFont.Dispose();
                 if (mouseAsset != null) mouseAsset.Dispose();
                 if (headsetAsset != null) headsetAsset.Dispose();
@@ -313,8 +316,6 @@ namespace RazerBatteryMonitor
 
         private static class NativeMethods
         {
-            internal const int GwlpHwndParent = -8;
-
             internal enum QueryUserNotificationState
             {
                 NotPresent = 1,
@@ -328,12 +329,6 @@ namespace RazerBatteryMonitor
 
             [DllImport("shell32.dll")]
             internal static extern int SHQueryUserNotificationState(out QueryUserNotificationState state);
-
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            internal static extern IntPtr FindWindow(string className, string windowName);
-
-            [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-            internal static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr newValue);
         }
     }
 }

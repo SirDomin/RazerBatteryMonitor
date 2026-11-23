@@ -24,6 +24,8 @@ namespace RazerBatteryMonitor
             DeviceState deathAdder = ReadDeathAdderLog();
             if (deathAdder != null && (deathAdder.IsOnline || deathAdder.Level.HasValue)) states.Add(deathAdder);
 
+            states.AddRange(SteelSeriesHeadsetReader.ReadSupported());
+
             bool needDirectNaga = !states.Any(delegate(DeviceState s) { return s.IsOnline && s.Name.IndexOf("Naga", StringComparison.OrdinalIgnoreCase) >= 0; });
             bool needDirectDeathAdder = !states.Any(delegate(DeviceState s) { return s.IsOnline && s.Name.IndexOf("DeathAdder", StringComparison.OrdinalIgnoreCase) >= 0; });
             if (needDirectNaga || needDirectDeathAdder)
@@ -41,9 +43,10 @@ namespace RazerBatteryMonitor
                 }
             }
 
-            EnsurePlaceholder(states, "Razer Naga V2 Pro", DeviceKind.Mouse);
-            EnsurePlaceholder(states, "Razer DeathAdder V3 Pro", DeviceKind.Mouse);
-            EnsurePlaceholder(states, "Razer Kraken V3 Pro", DeviceKind.Headset);
+            EnsurePlaceholder(states, "Razer Naga V2 Pro", "Naga", DeviceKind.Mouse);
+            EnsurePlaceholder(states, "Razer DeathAdder V3 Pro", "DeathAdder", DeviceKind.Mouse);
+            EnsurePlaceholder(states, "Razer Kraken V3 Pro", "Kraken", DeviceKind.Headset);
+            EnsurePlaceholder(states, "SteelSeries Arctis Nova 7 Gen 2", "Arctis Nova 7", DeviceKind.Headset);
             states.Sort(delegate(DeviceState a, DeviceState b)
             {
                 int kind = a.Kind.CompareTo(b.Kind);
@@ -64,11 +67,8 @@ namespace RazerBatteryMonitor
             return latest;
         }
 
-        private static void EnsurePlaceholder(List<DeviceState> states, string name, DeviceKind kind)
+        private static void EnsurePlaceholder(List<DeviceState> states, string name, string family, DeviceKind kind)
         {
-            string family = name.IndexOf("Naga", StringComparison.OrdinalIgnoreCase) >= 0 ? "Naga"
-                : name.IndexOf("DeathAdder", StringComparison.OrdinalIgnoreCase) >= 0 ? "DeathAdder"
-                : "Kraken";
             if (states.Exists(delegate(DeviceState s) { return s.Name.IndexOf(family, StringComparison.OrdinalIgnoreCase) >= 0; })) return;
             states.Add(new DeviceState { Name = name, Kind = kind, IsOnline = false, Source = "oczekiwanie na urządzenie" });
         }

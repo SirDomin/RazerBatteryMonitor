@@ -5,6 +5,9 @@ Small, read-only Windows tray monitor made for:
 - Razer Naga V2 Pro through Mouse Dock Pro (`1532:00A4`) or its stock receiver;
 - Razer DeathAdder V3 Pro (`1532:00B6/00B7` and `1532:00C2/00C3` variants);
 - Razer Kraken V3 Pro through the local Razer Synapse status log.
+- SteelSeries Arctis Nova 7/7P/7X Gen 2 family through its read-only HID
+  status report (`1038:227E` and related transmitters); SteelSeries GG is not
+  required.
 
 The application places compact mouse and headset indicators directly beside
 the notification-area chevron. Each indicator contains a readable percentage;
@@ -23,6 +26,8 @@ starts quietly in the notification area.
 - Only Razer getter commands `07/80` (battery) and `07/84` (charging) are sent.
 - Kraken V3 Pro support only reads Synapse's local log. No experimental headset
   commands are sent.
+- SteelSeries support sends only the documented `00 B0` status query and never
+  changes headset settings or firmware.
 - No external NuGet packages. The program builds with Windows' built-in .NET
   Framework compiler.
 

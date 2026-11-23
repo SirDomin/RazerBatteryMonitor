@@ -15,6 +15,8 @@ namespace RazerBatteryMonitor
         private const uint FileShareRead = 0x00000001;
         private const uint FileShareWrite = 0x00000002;
         private const uint OpenExisting = 3;
+        private const uint FileFlagOverlapped = 0x40000000;
+        private const int HidpStatusSuccess = 0x00110000;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct SpDeviceInterfaceData
@@ -34,12 +36,44 @@ namespace RazerBatteryMonitor
             public ushort VersionNumber;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct HidpCaps
+        {
+            public ushort Usage;
+            public ushort UsagePage;
+            public ushort InputReportByteLength;
+            public ushort OutputReportByteLength;
+            public ushort FeatureReportByteLength;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)] public ushort[] Reserved;
+            public ushort NumberLinkCollectionNodes;
+            public ushort NumberInputButtonCaps;
+            public ushort NumberInputValueCaps;
+            public ushort NumberInputDataIndices;
+            public ushort NumberOutputButtonCaps;
+            public ushort NumberOutputValueCaps;
+            public ushort NumberOutputDataIndices;
+            public ushort NumberFeatureButtonCaps;
+            public ushort NumberFeatureValueCaps;
+            public ushort NumberFeatureDataIndices;
+        }
+
         [DllImport("hid.dll")]
         private static extern void HidD_GetHidGuid(out Guid hidGuid);
 
         [DllImport("hid.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.U1)]
         private static extern bool HidD_GetAttributes(SafeFileHandle handle, ref HiddAttributes attributes);
+
+        [DllImport("hid.dll")]
+        [return: MarshalAs(UnmanagedType.U1)]
+        private static extern bool HidD_GetPreparsedData(SafeFileHandle handle, out IntPtr preparsedData);
+
+        [DllImport("hid.dll")]
+        [return: MarshalAs(UnmanagedType.U1)]
+        private static extern bool HidD_FreePreparsedData(IntPtr preparsedData);
+
+        [DllImport("hid.dll")]
+        private static extern int HidP_GetCaps(IntPtr preparsedData, ref HidpCaps capabilities);
 
         [DllImport("hid.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.U1)]
@@ -67,7 +101,16 @@ namespace RazerBatteryMonitor
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern SafeFileHandle CreateFile(string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes, uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool CancelIoEx(SafeFileHandle handle, IntPtr overlapped);
+
         internal static IList<HidDevice> EnumerateRazerDevices()
+        {
+            return EnumerateDevices(0x1532);
+        }
+
+        internal static IList<HidDevice> EnumerateDevices(ushort vendorId)
         {
             List<HidDevice> devices = new List<HidDevice>();
             Guid guid;
@@ -99,8 +142,16 @@ namespace RazerBatteryMonitor
                         {
                             HiddAttributes attributes = new HiddAttributes();
                             attributes.Size = Marshal.SizeOf(typeof(HiddAttributes));
-                            if (!HidD_GetAttributes(handle, ref attributes) || attributes.VendorId != 0x1532) continue;
-                            devices.Add(new HidDevice(path, attributes.VendorId, attributes.ProductId));
+                            if (!HidD_GetAttributes(handle, ref attributes) || attributes.VendorId != vendorId) continue;
+                            HidpCaps caps = new HidpCaps();
+                            IntPtr preparsed;
+                            if (HidD_GetPreparsedData(handle, out preparsed))
+                            {
+                                try { if (HidP_GetCaps(preparsed, ref caps) != HidpStatusSuccess) caps = new HidpCaps(); }
+                                finally { HidD_FreePreparsedData(preparsed); }
+                            }
+                            devices.Add(new HidDevice(path, attributes.VendorId, attributes.ProductId, caps.UsagePage, caps.Usage,
+                                caps.InputReportByteLength, caps.OutputReportByteLength, caps.FeatureReportByteLength));
                         }
                     }
                     finally { Marshal.FreeHGlobal(detail); }
@@ -118,17 +169,33 @@ namespace RazerBatteryMonitor
             return CreateFile(path, 0, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
         }
 
+        internal static SafeFileHandle OpenOverlapped(string path)
+        {
+            return CreateFile(path, GenericRead | GenericWrite, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, FileFlagOverlapped, IntPtr.Zero);
+        }
+
         internal sealed class HidDevice
         {
             internal readonly string Path;
             internal readonly ushort VendorId;
             internal readonly ushort ProductId;
+            internal readonly ushort UsagePage;
+            internal readonly ushort Usage;
+            internal readonly ushort InputReportLength;
+            internal readonly ushort OutputReportLength;
+            internal readonly ushort FeatureReportLength;
 
-            internal HidDevice(string path, ushort vendorId, ushort productId)
+            internal HidDevice(string path, ushort vendorId, ushort productId, ushort usagePage, ushort usage,
+                ushort inputReportLength, ushort outputReportLength, ushort featureReportLength)
             {
                 Path = path;
                 VendorId = vendorId;
                 ProductId = productId;
+                UsagePage = usagePage;
+                Usage = usage;
+                InputReportLength = inputReportLength;
+                OutputReportLength = outputReportLength;
+                FeatureReportLength = featureReportLength;
             }
         }
     }

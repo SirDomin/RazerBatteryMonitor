@@ -21,7 +21,7 @@ namespace RazerBatteryMonitor
             ForeColor = Color.White;
             Font = new Font("Segoe UI", 10f);
 
-            Label title = new Label { Text = "Bateria urządzeń Razer", AutoSize = true, Font = new Font("Segoe UI Semibold", 16f), Location = new Point(18, 16) };
+            Label title = new Label { Text = "Bateria urządzeń bezprzewodowych", AutoSize = true, Font = new Font("Segoe UI Semibold", 16f), Location = new Point(18, 16) };
             updated = new Label { Text = "Oczekiwanie na odczyt…", AutoSize = true, ForeColor = Color.FromArgb(160, 160, 165), Location = new Point(21, 50) };
             list = new FlowLayoutPanel { Location = new Point(16, 78), Size = new Size(410, 190), Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true };
             Controls.Add(title);
