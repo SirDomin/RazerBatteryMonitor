@@ -49,6 +49,11 @@ internal static class ProtocolTests
         Assert(record != null, "log event found");
         Assert(record != null && record.Level == 69, "latest log level");
         Assert(record != null && record.Status == "NoCharge_BatteryFull", "latest charge status");
+
+        string currentSynapse = "[2026/11/23 21:43:40.199] warn: [CHECK BATTERY STATUS] Result {\"chargingStatus\":\"Charging\",\"level\":70}\r\n";
+        SynapseLogReader.BatteryRecord current = SynapseLogReader.ParseLatest(currentSynapse);
+        Assert(current != null && current.Level == 70, "current Synapse battery event");
+        Assert(current != null && current.Status == "Charging", "current Synapse charging status");
     }
 
     public static int Main()

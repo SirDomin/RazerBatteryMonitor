@@ -11,8 +11,8 @@ namespace RazerBatteryMonitor
     {
         private const int TailBytes = 2 * 1024 * 1024;
         private static readonly Regex BatteryEvent = new Regex(
-            @"\[(?<time>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+)\][^\r\n]*GET_BATTERY_STATE[^\r\n]*?\{""chargingStatus"":""(?<status>[^""]+)"",""level"":(?<level>\d+)\}",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+            @"\[(?<time>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+)\][^\r\n]*(?:GET_BATTERY_STATE|BATTERY STATUS)[^\r\n]*?\{""chargingStatus"":""(?<status>[^""]+)"",""level"":(?<level>\d+)\}",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         internal static DeviceState ReadProduct(int productId, string name, DeviceKind kind)
         {
