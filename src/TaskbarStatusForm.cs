@@ -14,7 +14,7 @@ namespace RazerBatteryMonitor
 {
     internal sealed class TaskbarStatusForm : Form
     {
-        private const int SegmentWidth = 86;
+        private const int SegmentWidth = 96;
         private const int WindowHeight = 34;
         private const int WsExToolWindow = 0x00000080;
         private const int WsExNoActivate = 0x08000000;
@@ -191,18 +191,15 @@ namespace RazerBatteryMonitor
                 Bitmap asset = kind == DeviceKind.Mouse ? mouseAsset : headsetAsset;
                 DrawTintedMask(graphics, asset, new Rectangle(x, 5, 24, 24), color);
                 if (kind == DeviceKind.Mouse)
-                {
-                    using (SolidBrush cutout = new SolidBrush(TransparentColor))
-                        graphics.FillRectangle(cutout, x + 11, 9, 2, 6);
-                }
+                    graphics.FillRectangle(brush, x + 11, 9, 2, 6);
 
                 string text = state.Level.Value.ToString() + "%";
                 using (StringFormat format = (StringFormat)StringFormat.GenericTypographic.Clone())
                 {
                     format.FormatFlags |= StringFormatFlags.NoWrap;
-                    graphics.DrawString(text, valueFont, brush, new PointF(x + 27, 7), format);
+                    graphics.DrawString(text, valueFont, brush, new PointF(x + 31, 7), format);
                 }
-                if (state.IsCharging) DrawBolt(graphics, brush, x + 74, 8);
+                if (state.IsCharging) DrawBolt(graphics, brush, x + 84, 8);
             }
         }
 
@@ -222,13 +219,34 @@ namespace RazerBatteryMonitor
                         graphics.DrawImage(source, new Rectangle(0, 0, 24, 24));
                     }
 
+                    bool[,] solid = new bool[24, 24];
+                    for (int y = 0; y < 24; y++)
+                    {
+                        for (int x = 0; x < 24; x++)
+                            solid[x, y] = resized.GetPixel(x, y).A >= 96;
+                    }
+
                     Bitmap mask = new Bitmap(24, 24, PixelFormat.Format32bppArgb);
                     for (int y = 0; y < 24; y++)
                     {
                         for (int x = 0; x < 24; x++)
                         {
-                            Color pixel = resized.GetPixel(x, y);
-                            mask.SetPixel(x, y, pixel.A >= 96 ? Color.White : Color.Transparent);
+                            if (!solid[x, y]) continue;
+                            bool edge = false;
+                            for (int offsetY = -1; offsetY <= 1 && !edge; offsetY++)
+                            {
+                                for (int offsetX = -1; offsetX <= 1; offsetX++)
+                                {
+                                    int sampleX = x + offsetX;
+                                    int sampleY = y + offsetY;
+                                    if (sampleX < 0 || sampleY < 0 || sampleX >= 24 || sampleY >= 24 || !solid[sampleX, sampleY])
+                                    {
+                                        edge = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (edge) mask.SetPixel(x, y, Color.White);
                         }
                     }
                     return mask;
