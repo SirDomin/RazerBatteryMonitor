@@ -27,7 +27,9 @@ $args = @(
     '/reference:System.Windows.Forms.dll',
     ('/reference:' + (Join-Path $wpf 'UIAutomationClient.dll')),
     ('/reference:' + (Join-Path $wpf 'UIAutomationTypes.dll')),
-    ('/reference:' + (Join-Path $wpf 'WindowsBase.dll'))
+    ('/reference:' + (Join-Path $wpf 'WindowsBase.dll')),
+    ('/resource:' + (Join-Path $root 'assets\mouse.png') + ',RazerBatteryMonitor.Assets.mouse.png'),
+    ('/resource:' + (Join-Path $root 'assets\headset.png') + ',RazerBatteryMonitor.Assets.headset.png')
 ) + $sources
 
 & $csc @args
