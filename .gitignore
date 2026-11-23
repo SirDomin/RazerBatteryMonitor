@@ -1,0 +1,7 @@
+artifacts/
+*.user
+*.suo
+*.pdb
+*.log
+.vs/
+
