@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
@@ -9,15 +8,11 @@ namespace RazerBatteryMonitor
 {
     internal sealed class TrayApplicationContext : ApplicationContext
     {
-        private readonly NotifyIcon mouseIcon;
-        private readonly NotifyIcon headsetIcon;
         private readonly System.Windows.Forms.Timer timer;
         private readonly MonitorService monitor;
         private readonly DashboardForm dashboard;
         private readonly TaskbarStatusForm taskbarStatus;
         private IList<DeviceState> states;
-        private DeviceState currentMouse;
-        private DeviceState currentHeadset;
         private int refreshing;
 
         internal TrayApplicationContext(bool showDashboard)
@@ -34,26 +29,12 @@ namespace RazerBatteryMonitor
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Zakończ", null, delegate { Exit(); });
 
-            mouseIcon = CreateIcon(DeviceKind.Mouse, "Mysz Razer · oczekiwanie na odczyt", menu);
-            headsetIcon = CreateIcon(DeviceKind.Headset, "Słuchawki · oczekiwanie na odczyt", menu);
             taskbarStatus = new TaskbarStatusForm(ShowDashboard, menu);
-            taskbarStatus.AnchorAvailabilityChanged += delegate { UpdateFallbackIconVisibility(); };
             timer = new System.Windows.Forms.Timer { Interval = 15000 };
             timer.Tick += delegate { RefreshAsync(); };
             timer.Start();
             RefreshAsync();
             if (showDashboard) ShowDashboard();
-        }
-
-        private NotifyIcon CreateIcon(DeviceKind kind, string text, ContextMenuStrip menu)
-        {
-            NotifyIcon icon = new NotifyIcon();
-            icon.Icon = TrayIconRenderer.Render(kind, null, false, false);
-            icon.Text = text;
-            icon.ContextMenuStrip = menu;
-            icon.Visible = false;
-            icon.MouseClick += delegate(object sender, MouseEventArgs args) { if (args.Button == MouseButtons.Left) ShowDashboard(); };
-            return icon;
         }
 
         private void RefreshAsync()
@@ -79,44 +60,7 @@ namespace RazerBatteryMonitor
 
         private void UpdateIcons()
         {
-            currentMouse = states.Where(delegate(DeviceState s) { return s.Kind == DeviceKind.Mouse && s.IsOnline && s.Level.HasValue; }).OrderBy(delegate(DeviceState s) { return s.Level.Value; }).FirstOrDefault();
-            currentHeadset = states.Where(delegate(DeviceState s) { return s.Kind == DeviceKind.Headset && s.IsOnline && s.Level.HasValue; }).OrderBy(delegate(DeviceState s) { return s.Level.Value; }).FirstOrDefault();
-            SetIcon(mouseIcon, DeviceKind.Mouse, currentMouse, MouseTooltip());
-            SetIcon(headsetIcon, DeviceKind.Headset, currentHeadset, currentHeadset == null ? "Słuchawki · brak danych" : Tooltip(currentHeadset));
-            taskbarStatus.UpdateStates(currentMouse, currentHeadset);
-            UpdateFallbackIconVisibility();
-        }
-
-        private void UpdateFallbackIconVisibility()
-        {
-            bool fallback = !taskbarStatus.AnchorAvailable;
-            mouseIcon.Visible = fallback && currentMouse != null;
-            headsetIcon.Visible = fallback && currentHeadset != null;
-        }
-
-        private string MouseTooltip()
-        {
-            IEnumerable<DeviceState> mice = states.Where(delegate(DeviceState s) { return s.Kind == DeviceKind.Mouse; });
-            string value = string.Join(" | ", mice.Select(delegate(DeviceState s) { return s.Name.Replace("Razer ", string.Empty) + " " + s.ShortStatus(); }).ToArray());
-            return TrimTooltip(string.IsNullOrEmpty(value) ? "Mysz Razer · brak danych" : value);
-        }
-
-        private static string Tooltip(DeviceState state)
-        {
-            return TrimTooltip(string.Format("{0} · {1}", state.Name, state.ShortStatus()));
-        }
-
-        private static string TrimTooltip(string value)
-        {
-            return value.Length <= 63 ? value : value.Substring(0, 60) + "...";
-        }
-
-        private static void SetIcon(NotifyIcon notify, DeviceKind kind, DeviceState state, string tooltip)
-        {
-            Icon previous = notify.Icon;
-            notify.Icon = TrayIconRenderer.Render(kind, state == null ? (int?)null : state.Level, state != null && state.IsCharging, state != null && state.IsOnline);
-            notify.Text = tooltip;
-            if (previous != null) previous.Dispose();
+            taskbarStatus.UpdateStates(states);
         }
 
         private void ShowDashboard()
@@ -130,10 +74,6 @@ namespace RazerBatteryMonitor
         private void Exit()
         {
             timer.Stop();
-            mouseIcon.Visible = false;
-            headsetIcon.Visible = false;
-            mouseIcon.Dispose();
-            headsetIcon.Dispose();
             taskbarStatus.Dispose();
             dashboard.Dispose();
             ExitThread();

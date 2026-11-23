@@ -5,23 +5,28 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Windows.Automation;
 using System.Windows.Forms;
 
 namespace RazerBatteryMonitor
 {
     internal sealed class TaskbarStatusForm : Form
     {
-        private const int SegmentWidth = 96;
-        private const int WindowHeight = 34;
+        private const int LogicalSegmentWidth = 76;
+        private const int LogicalWindowHeight = 24;
+        private const int LogicalIconSize = 20;
+        private const float StandardTaskbarHeight = 48f;
         private const int WsExToolWindow = 0x00000080;
+        private const int WsExLayered = 0x00080000;
         private const int WsExNoActivate = 0x08000000;
         private const int SwpNoActivate = 0x0010;
         private const int SwpShowWindow = 0x0040;
+        private const int UlwAlpha = 0x00000002;
+        private const byte AcSrcOver = 0x00;
+        private const byte AcSrcAlpha = 0x01;
         private static readonly IntPtr HwndTopmost = new IntPtr(-1);
-        private static readonly Color TransparentColor = Color.Fuchsia;
 
         private readonly Action showDashboard;
         private readonly Timer placementTimer;
@@ -29,16 +34,61 @@ namespace RazerBatteryMonitor
         private readonly Font valueFont;
         private readonly Bitmap mouseAsset;
         private readonly Bitmap headsetAsset;
-        private DeviceState mouse;
-        private DeviceState headset;
-        private bool anchorAvailable;
+        private readonly Bitmap steelSeriesAsset;
+        private readonly Bitmap deathAdderAsset;
+        private IList<DeviceState> devices = new List<DeviceState>();
         private Rectangle lastAnchor;
-        private int anchorMisses;
-
-        internal event EventHandler AnchorAvailabilityChanged;
+        private float displayScale = 1f;
+        private int deviceCount;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int width, int height, uint flags);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UpdateLayeredWindow(IntPtr hWnd, IntPtr destinationDc, ref NativePoint destination, ref NativeSize size, IntPtr sourceDc, ref NativePoint source, int colorKey, ref BlendFunction blend, int flags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetDC(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern int ReleaseDC(IntPtr hWnd, IntPtr dc);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateCompatibleDC(IntPtr dc);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteDC(IntPtr dc);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr SelectObject(IntPtr dc, IntPtr objectHandle);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr objectHandle);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativePoint
+        {
+            internal int X;
+            internal int Y;
+            internal NativePoint(int x, int y) { X = x; Y = y; }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeSize
+        {
+            internal int Width;
+            internal int Height;
+            internal NativeSize(int width, int height) { Width = width; Height = height; }
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        private struct BlendFunction
+        {
+            internal byte BlendOp;
+            internal byte BlendFlags;
+            internal byte SourceConstantAlpha;
+            internal byte AlphaFormat;
+        }
 
         internal TaskbarStatusForm(Action showDashboard, ContextMenuStrip menu)
         {
@@ -48,15 +98,15 @@ namespace RazerBatteryMonitor
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
             AutoScaleMode = AutoScaleMode.None;
-            BackColor = TransparentColor;
-            TransparencyKey = TransparentColor;
             ContextMenuStrip = menu;
             DoubleBuffered = true;
-            Width = SegmentWidth;
-            Height = WindowHeight;
+            Width = LogicalSegmentWidth;
+            Height = LogicalWindowHeight;
             valueFont = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold, GraphicsUnit.Point);
-            mouseAsset = LoadMonochromeMask("RazerBatteryMonitor.Assets.mouse.png");
-            headsetAsset = LoadMonochromeMask("RazerBatteryMonitor.Assets.headset.png");
+            mouseAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.mouse.png", 48);
+            headsetAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.headset.png", 180);
+            steelSeriesAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.steelseries.png", 180);
+            deathAdderAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.deathadder.png", 200);
 
             MouseClick += delegate(object sender, MouseEventArgs args)
             {
@@ -78,26 +128,31 @@ namespace RazerBatteryMonitor
             get
             {
                 CreateParams parameters = base.CreateParams;
-                parameters.ExStyle |= WsExToolWindow | WsExNoActivate;
+                parameters.ExStyle |= WsExToolWindow | WsExLayered | WsExNoActivate;
                 return parameters;
             }
         }
 
-        internal bool AnchorAvailable { get { return anchorAvailable; } }
-
-        internal void UpdateStates(DeviceState mouseState, DeviceState headsetState)
+        internal void UpdateStates(IList<DeviceState> states)
         {
-            mouse = IsDisplayable(mouseState) ? mouseState : null;
-            headset = IsDisplayable(headsetState) ? headsetState : null;
-            int count = (mouse == null ? 0 : 1) + (headset == null ? 0 : 1);
-            Width = Math.Max(SegmentWidth, count * SegmentWidth);
-            Invalidate();
+            devices = states.Where(IsDisplayable).OrderBy(DeviceOrder).ToList();
+            deviceCount = devices.Count;
+            ApplyDimensions();
             RefreshPlacement();
         }
 
         private static bool IsDisplayable(DeviceState state)
         {
             return state != null && state.IsOnline && state.Level.HasValue;
+        }
+
+        private static int DeviceOrder(DeviceState state)
+        {
+            if (state.Name.IndexOf("Naga", StringComparison.OrdinalIgnoreCase) >= 0) return 0;
+            if (state.Name.IndexOf("Kraken", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
+            if (state.Name.IndexOf("SteelSeries", StringComparison.OrdinalIgnoreCase) >= 0 || state.Name.IndexOf("Arctis", StringComparison.OrdinalIgnoreCase) >= 0) return 2;
+            if (state.Name.IndexOf("DeathAdder", StringComparison.OrdinalIgnoreCase) >= 0) return 3;
+            return state.Kind == DeviceKind.Mouse ? 4 : 5;
         }
 
         private void RefreshPlacement()
@@ -107,20 +162,15 @@ namespace RazerBatteryMonitor
             if (found)
             {
                 lastAnchor = anchor;
-                anchorMisses = 0;
             }
-            else if (!lastAnchor.IsEmpty && ++anchorMisses < 3)
+            else if (!lastAnchor.IsEmpty)
             {
                 anchor = lastAnchor;
                 found = true;
             }
-            else
-            {
-                lastAnchor = Rectangle.Empty;
-            }
-            SetAnchorAvailable(found);
+            if (found) UpdateDisplayScale(anchor);
 
-            if (!found || (mouse == null && headset == null) || ShouldHideForUserState())
+            if (!found || devices.Count == 0)
             {
                 Hide();
                 return;
@@ -130,6 +180,7 @@ namespace RazerBatteryMonitor
             int top = anchor.Top + Math.Max(0, (anchor.Height - Height) / 2);
             if (!Visible) Show();
             SetWindowPos(Handle, HwndTopmost, left, top, Width, Height, SwpNoActivate | SwpShowWindow);
+            RenderLayeredWindow();
         }
 
         private void KeepAboveTaskbar()
@@ -140,151 +191,165 @@ namespace RazerBatteryMonitor
             SetWindowPos(Handle, HwndTopmost, left, top, Width, Height, SwpNoActivate | SwpShowWindow);
         }
 
-        private void SetAnchorAvailable(bool value)
+        private void UpdateDisplayScale(Rectangle anchor)
         {
-            if (anchorAvailable == value) return;
-            anchorAvailable = value;
-            EventHandler handler = AnchorAvailabilityChanged;
-            if (handler != null) handler(this, EventArgs.Empty);
+            float scale = Math.Max(0.75f, Math.Min(3f, anchor.Height / StandardTaskbarHeight));
+            if (Math.Abs(scale - displayScale) < 0.01f) return;
+            displayScale = scale;
+            ApplyDimensions();
+        }
+
+        private void ApplyDimensions()
+        {
+            int segmentWidth = ScaleLogical(LogicalSegmentWidth);
+            Width = Math.Max(segmentWidth, deviceCount * segmentWidth);
+            Height = ScaleLogical(LogicalWindowHeight);
+        }
+
+        private int ScaleLogical(int value)
+        {
+            return Math.Max(1, (int)Math.Round(value * displayScale));
         }
 
         private static bool TryFindNotificationChevron(out Rectangle rectangle)
         {
             rectangle = Rectangle.Empty;
-            try
-            {
-                PropertyCondition condition = new PropertyCondition(AutomationElement.AutomationIdProperty, "SystemTrayIcon");
-                AutomationElementCollection elements = AutomationElement.RootElement.FindAll(TreeScope.Descendants, condition);
-                Rectangle primary = Screen.PrimaryScreen.Bounds;
-                foreach (AutomationElement element in elements)
-                {
-                    System.Windows.Rect bounds = element.Current.BoundingRectangle;
-                    if (bounds.IsEmpty || bounds.Width < 1 || bounds.Height < 1) continue;
-                    Rectangle candidate = Rectangle.Round(new RectangleF((float)bounds.X, (float)bounds.Y, (float)bounds.Width, (float)bounds.Height));
-                    if (candidate.Bottom >= primary.Bottom - 4 && primary.IntersectsWith(candidate))
-                    {
-                        rectangle = candidate;
-                        return true;
-                    }
-                }
-            }
-            catch (ElementNotAvailableException) { }
-            catch (InvalidOperationException) { }
-            catch (COMException) { }
-            return false;
-        }
-
-        private static bool ShouldHideForUserState()
-        {
-            NativeMethods.QueryUserNotificationState state;
-            int result = NativeMethods.SHQueryUserNotificationState(out state);
-            if (result != 0) return false;
-            return state == NativeMethods.QueryUserNotificationState.NotPresent
-                || state == NativeMethods.QueryUserNotificationState.Busy
-                || state == NativeMethods.QueryUserNotificationState.RunningD3dFullScreen
-                || state == NativeMethods.QueryUserNotificationState.PresentationMode;
+            IntPtr taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
+            if (taskbar == IntPtr.Zero) return false;
+            IntPtr notificationArea = NativeMethods.FindWindowEx(taskbar, IntPtr.Zero, "TrayNotifyWnd", null);
+            if (notificationArea == IntPtr.Zero) return false;
+            NativeMethods.Rect bounds;
+            if (!NativeMethods.GetWindowRect(notificationArea, out bounds)) return false;
+            if (bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top) return false;
+            rectangle = Rectangle.FromLTRB(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+            return true;
         }
 
         protected override void OnPaint(PaintEventArgs args)
         {
-            base.OnPaint(args);
-            args.Graphics.SmoothingMode = SmoothingMode.None;
-            args.Graphics.TextRenderingHint = TextRenderingHint.SingleBitPerPixelGridFit;
-            int x = 0;
-            if (mouse != null) { DrawSegment(args.Graphics, mouse, DeviceKind.Mouse, x); x += SegmentWidth; }
-            if (headset != null) DrawSegment(args.Graphics, headset, DeviceKind.Headset, x);
         }
 
-        private void DrawSegment(Graphics graphics, DeviceState state, DeviceKind kind, int x)
+        private void DrawContents(Graphics graphics)
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.SmoothingMode = SmoothingMode.HighQuality;
+            graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            int x = 0;
+            foreach (DeviceState state in devices)
+            {
+                DrawSegment(graphics, state, x);
+                x += ScaleLogical(LogicalSegmentWidth);
+            }
+        }
+
+        private void RenderLayeredWindow()
+        {
+            if (!IsHandleCreated || Width <= 0 || Height <= 0) return;
+            using (Bitmap surface = new Bitmap(Width, Height, PixelFormat.Format32bppArgb))
+            {
+                using (Graphics graphics = Graphics.FromImage(surface)) DrawContents(graphics);
+                IntPtr screenDc = GetDC(IntPtr.Zero);
+                IntPtr memoryDc = CreateCompatibleDC(screenDc);
+                IntPtr bitmapHandle = IntPtr.Zero;
+                IntPtr previousBitmap = IntPtr.Zero;
+                try
+                {
+                    bitmapHandle = surface.GetHbitmap(Color.FromArgb(0));
+                    previousBitmap = SelectObject(memoryDc, bitmapHandle);
+                    NativePoint destination = new NativePoint(Left, Top);
+                    NativePoint source = new NativePoint(0, 0);
+                    NativeSize size = new NativeSize(Width, Height);
+                    BlendFunction blend = new BlendFunction
+                    {
+                        BlendOp = AcSrcOver,
+                        BlendFlags = 0,
+                        SourceConstantAlpha = 255,
+                        AlphaFormat = AcSrcAlpha
+                    };
+                    UpdateLayeredWindow(Handle, screenDc, ref destination, ref size, memoryDc, ref source, 0, ref blend, UlwAlpha);
+                }
+                finally
+                {
+                    if (previousBitmap != IntPtr.Zero) SelectObject(memoryDc, previousBitmap);
+                    if (bitmapHandle != IntPtr.Zero) DeleteObject(bitmapHandle);
+                    DeleteDC(memoryDc);
+                    ReleaseDC(IntPtr.Zero, screenDc);
+                }
+            }
+        }
+
+        private void DrawSegment(Graphics graphics, DeviceState state, int x)
         {
             Color color = StateColor(state);
             using (SolidBrush brush = new SolidBrush(color))
             {
-                Bitmap asset = kind == DeviceKind.Mouse ? mouseAsset : headsetAsset;
-                DrawTintedMask(graphics, asset, new Rectangle(x, 5, 24, 24), color);
-                if (kind == DeviceKind.Mouse)
-                    graphics.FillRectangle(brush, x + 11, 9, 2, 6);
+                Rectangle iconBounds = new Rectangle(x, ScaleLogical(2), ScaleLogical(LogicalIconSize), ScaleLogical(LogicalIconSize));
+                DrawOriginalIcon(graphics, AssetFor(state), iconBounds);
 
                 string text = state.Level.Value.ToString() + "%";
                 using (StringFormat format = (StringFormat)StringFormat.GenericTypographic.Clone())
                 {
                     format.FormatFlags |= StringFormatFlags.NoWrap;
-                    graphics.DrawString(text, valueFont, brush, new PointF(x + 31, 7), format);
+                    graphics.DrawString(text, valueFont, brush, new PointF(x + ScaleLogical(25), ScaleLogical(5)), format);
                 }
-                if (state.IsCharging) DrawBolt(graphics, brush, x + 84, 8);
+                if (state.IsCharging) DrawBolt(graphics, brush, x + ScaleLogical(63), ScaleLogical(5));
             }
         }
 
-        private static Bitmap LoadMonochromeMask(string resourceName)
+        private Bitmap AssetFor(DeviceState state)
+        {
+            if (state.Name.IndexOf("DeathAdder", StringComparison.OrdinalIgnoreCase) >= 0) return deathAdderAsset;
+            if (state.Name.IndexOf("SteelSeries", StringComparison.OrdinalIgnoreCase) >= 0 || state.Name.IndexOf("Arctis", StringComparison.OrdinalIgnoreCase) >= 0) return steelSeriesAsset;
+            if (state.Kind == DeviceKind.Headset) return headsetAsset;
+            return mouseAsset;
+        }
+
+        private static Bitmap LoadCleanIcon(string resourceName, int brightnessThreshold)
         {
             using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
             {
                 if (stream == null) return null;
                 using (Bitmap source = new Bitmap(stream))
-                using (Bitmap resized = new Bitmap(24, 24, PixelFormat.Format32bppArgb))
+                using (Bitmap resized = new Bitmap(64, 64, PixelFormat.Format32bppArgb))
                 {
                     using (Graphics graphics = Graphics.FromImage(resized))
                     {
                         graphics.Clear(Color.Transparent);
                         graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        graphics.CompositingQuality = CompositingQuality.HighQuality;
                         graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                        graphics.DrawImage(source, new Rectangle(0, 0, 24, 24));
+                        graphics.DrawImage(source, new Rectangle(1, 1, 62, 62));
                     }
 
-                    bool[,] solid = new bool[24, 24];
-                    for (int y = 0; y < 24; y++)
+                    Bitmap cleaned = new Bitmap(64, 64, PixelFormat.Format32bppArgb);
+                    for (int y = 0; y < cleaned.Height; y++)
                     {
-                        for (int x = 0; x < 24; x++)
-                            solid[x, y] = resized.GetPixel(x, y).A >= 96;
-                    }
-
-                    Bitmap mask = new Bitmap(24, 24, PixelFormat.Format32bppArgb);
-                    for (int y = 0; y < 24; y++)
-                    {
-                        for (int x = 0; x < 24; x++)
+                        for (int x = 0; x < cleaned.Width; x++)
                         {
-                            if (!solid[x, y]) continue;
-                            bool edge = false;
-                            for (int offsetY = -1; offsetY <= 1 && !edge; offsetY++)
-                            {
-                                for (int offsetX = -1; offsetX <= 1; offsetX++)
-                                {
-                                    int sampleX = x + offsetX;
-                                    int sampleY = y + offsetY;
-                                    if (sampleX < 0 || sampleY < 0 || sampleX >= 24 || sampleY >= 24 || !solid[sampleX, sampleY])
-                                    {
-                                        edge = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (edge) mask.SetPixel(x, y, Color.White);
+                            Color pixel = resized.GetPixel(x, y);
+                            int brightness = Math.Max(pixel.R, Math.Max(pixel.G, pixel.B));
+                            if (pixel.A >= 24 && brightness >= brightnessThreshold) cleaned.SetPixel(x, y, Color.White);
                         }
                     }
-                    return mask;
+                    return cleaned;
                 }
             }
         }
 
-        private static void DrawTintedMask(Graphics graphics, Bitmap mask, Rectangle destination, Color color)
+        private static void DrawOriginalIcon(Graphics graphics, Bitmap image, Rectangle destination)
         {
-            if (mask == null) return;
-            ColorMatrix matrix = new ColorMatrix(new float[][]
-            {
-                new float[] { 0, 0, 0, 0, 0 },
-                new float[] { 0, 0, 0, 0, 0 },
-                new float[] { 0, 0, 0, 0, 0 },
-                new float[] { 0, 0, 0, 1, 0 },
-                new float[] { color.R / 255f, color.G / 255f, color.B / 255f, 0, 1 }
-            });
-            using (ImageAttributes attributes = new ImageAttributes())
-            {
-                attributes.SetColorMatrix(matrix);
-                InterpolationMode previous = graphics.InterpolationMode;
-                graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
-                graphics.DrawImage(mask, destination, 0, 0, mask.Width, mask.Height, GraphicsUnit.Pixel, attributes);
-                graphics.InterpolationMode = previous;
-            }
+            if (image == null) return;
+            InterpolationMode interpolation = graphics.InterpolationMode;
+            CompositingQuality compositing = graphics.CompositingQuality;
+            PixelOffsetMode pixelOffset = graphics.PixelOffsetMode;
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.DrawImage(image, destination);
+            graphics.DrawImage(image, destination);
+            graphics.InterpolationMode = interpolation;
+            graphics.CompositingQuality = compositing;
+            graphics.PixelOffsetMode = pixelOffset;
         }
 
         private static Color StateColor(DeviceState state)
@@ -295,9 +360,17 @@ namespace RazerBatteryMonitor
             return Color.White;
         }
 
-        private static void DrawBolt(Graphics graphics, Brush brush, int x, int y)
+        private void DrawBolt(Graphics graphics, Brush brush, int x, int y)
         {
-            Point[] points = { new Point(x + 4, y), new Point(x, y + 8), new Point(x + 4, y + 8), new Point(x + 1, y + 16), new Point(x + 10, y + 6), new Point(x + 6, y + 6), new Point(x + 9, y) };
+            Point[] points = {
+                new Point(x + ScaleLogical(3), y),
+                new Point(x, y + ScaleLogical(6)),
+                new Point(x + ScaleLogical(3), y + ScaleLogical(6)),
+                new Point(x + ScaleLogical(1), y + ScaleLogical(11)),
+                new Point(x + ScaleLogical(7), y + ScaleLogical(4)),
+                new Point(x + ScaleLogical(4), y + ScaleLogical(4)),
+                new Point(x + ScaleLogical(6), y)
+            };
             graphics.FillPolygon(brush, points);
         }
 
@@ -310,25 +383,27 @@ namespace RazerBatteryMonitor
                 valueFont.Dispose();
                 if (mouseAsset != null) mouseAsset.Dispose();
                 if (headsetAsset != null) headsetAsset.Dispose();
+                if (steelSeriesAsset != null) steelSeriesAsset.Dispose();
+                if (deathAdderAsset != null) deathAdderAsset.Dispose();
             }
             base.Dispose(disposing);
         }
 
         private static class NativeMethods
         {
-            internal enum QueryUserNotificationState
-            {
-                NotPresent = 1,
-                Busy = 2,
-                RunningD3dFullScreen = 3,
-                PresentationMode = 4,
-                AcceptsNotifications = 5,
-                QuietTime = 6,
-                App = 7
-            }
+            [StructLayout(LayoutKind.Sequential)]
+            internal struct Rect { internal int Left, Top, Right, Bottom; }
 
-            [DllImport("shell32.dll")]
-            internal static extern int SHQueryUserNotificationState(out QueryUserNotificationState state);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            internal static extern IntPtr FindWindow(string className, string windowName);
+
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            internal static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string className, string windowName);
+
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            internal static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
         }
+
     }
 }
