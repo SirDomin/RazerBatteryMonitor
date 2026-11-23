@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -12,6 +11,7 @@ namespace RazerBatteryMonitor
         private readonly MonitorService monitor;
         private readonly DashboardForm dashboard;
         private readonly TaskbarStatusForm taskbarStatus;
+        private readonly AppSettings settings;
         private IList<DeviceState> states;
         private int refreshing;
 
@@ -19,17 +19,22 @@ namespace RazerBatteryMonitor
         {
             monitor = new MonitorService();
             states = new List<DeviceState>();
+            settings = AppSettings.Load();
             dashboard = new DashboardForm();
             if (dashboard.Handle == IntPtr.Zero) throw new InvalidOperationException("The dashboard window could not be initialized.");
             dashboard.FormClosing += delegate(object sender, FormClosingEventArgs args) { args.Cancel = true; dashboard.Hide(); };
 
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("Pokaż urządzenia", null, delegate { ShowDashboard(); });
+            menu.Items.Add("Ustawienia…", null, delegate { ShowDashboard(); });
             menu.Items.Add("Odśwież teraz", null, delegate { RefreshAsync(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Zakończ", null, delegate { Exit(); });
 
             taskbarStatus = new TaskbarStatusForm(ShowDashboard, menu);
+            taskbarStatus.Configure(settings.MonitorDeviceName, settings.ShowOverFullscreen);
+            dashboard.ConfigureSettings(settings.MonitorDeviceName, settings.ShowOverFullscreen);
+            dashboard.OverlaySettingsChanged += ApplyOverlaySettings;
             timer = new System.Windows.Forms.Timer { Interval = 15000 };
             timer.Tick += delegate { RefreshAsync(); };
             timer.Start();
@@ -61,6 +66,15 @@ namespace RazerBatteryMonitor
         private void UpdateIcons()
         {
             taskbarStatus.UpdateStates(states);
+        }
+
+        private void ApplyOverlaySettings(string monitorDeviceName, bool showOverFullscreen)
+        {
+            settings.MonitorDeviceName = monitorDeviceName;
+            settings.ShowOverFullscreen = showOverFullscreen;
+            try { settings.Save(); }
+            catch (Exception ex) { MessageBox.Show("Nie udało się zapisać ustawień: " + ex.Message, "Razer Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            taskbarStatus.Configure(monitorDeviceName, showOverFullscreen);
         }
 
         private void ShowDashboard()

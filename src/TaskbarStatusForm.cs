@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
 namespace RazerBatteryMonitor
@@ -38,6 +39,8 @@ namespace RazerBatteryMonitor
         private readonly Bitmap deathAdderAsset;
         private IList<DeviceState> devices = new List<DeviceState>();
         private Rectangle lastAnchor;
+        private string targetMonitorDeviceName;
+        private bool showOverFullscreen;
         private float displayScale = 1f;
         private int deviceCount;
 
@@ -141,6 +144,14 @@ namespace RazerBatteryMonitor
             RefreshPlacement();
         }
 
+        internal void Configure(string monitorDeviceName, bool allowOverFullscreen)
+        {
+            targetMonitorDeviceName = monitorDeviceName;
+            showOverFullscreen = allowOverFullscreen;
+            lastAnchor = Rectangle.Empty;
+            RefreshPlacement();
+        }
+
         private static bool IsDisplayable(DeviceState state)
         {
             return state != null && state.IsOnline && state.Level.HasValue;
@@ -158,19 +169,14 @@ namespace RazerBatteryMonitor
         private void RefreshPlacement()
         {
             Rectangle anchor;
-            bool found = TryFindNotificationChevron(out anchor);
+            bool found = TryFindTaskbarAnchor(out anchor);
             if (found)
             {
                 lastAnchor = anchor;
             }
-            else if (!lastAnchor.IsEmpty)
-            {
-                anchor = lastAnchor;
-                found = true;
-            }
             if (found) UpdateDisplayScale(anchor);
 
-            if (!found || devices.Count == 0)
+            if (!found || devices.Count == 0 || IsTaskbarCovered(anchor))
             {
                 Hide();
                 return;
@@ -185,7 +191,13 @@ namespace RazerBatteryMonitor
 
         private void KeepAboveTaskbar()
         {
-            if (!Visible || lastAnchor.IsEmpty) return;
+            if (lastAnchor.IsEmpty || devices.Count == 0) return;
+            if (IsTaskbarCovered(lastAnchor))
+            {
+                if (Visible) Hide();
+                return;
+            }
+            if (!Visible) return;
             int left = lastAnchor.Left - Width - 3;
             int top = lastAnchor.Top + Math.Max(0, (lastAnchor.Height - Height) / 2);
             SetWindowPos(Handle, HwndTopmost, left, top, Width, Height, SwpNoActivate | SwpShowWindow);
@@ -211,18 +223,70 @@ namespace RazerBatteryMonitor
             return Math.Max(1, (int)Math.Round(value * displayScale));
         }
 
-        private static bool TryFindNotificationChevron(out Rectangle rectangle)
+        private bool TryFindTaskbarAnchor(out Rectangle rectangle)
         {
             rectangle = Rectangle.Empty;
-            IntPtr taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
+            Screen target = Screen.AllScreens.FirstOrDefault(delegate(Screen screen)
+            {
+                return string.Equals(screen.DeviceName, targetMonitorDeviceName, StringComparison.OrdinalIgnoreCase);
+            }) ?? Screen.PrimaryScreen;
+            if (target == null) return false;
+
+            IntPtr taskbar = IntPtr.Zero;
+            NativeMethods.EnumWindows(delegate(IntPtr window, IntPtr parameter)
+            {
+                StringBuilder className = new StringBuilder(64);
+                NativeMethods.GetClassName(window, className, className.Capacity);
+                string value = className.ToString();
+                if (value != "Shell_TrayWnd" && value != "Shell_SecondaryTrayWnd") return true;
+                NativeMethods.Rect candidateBounds;
+                if (!NativeMethods.GetWindowRect(window, out candidateBounds)) return true;
+                Rectangle candidate = Rectangle.FromLTRB(candidateBounds.Left, candidateBounds.Top, candidateBounds.Right, candidateBounds.Bottom);
+                if (!candidate.IntersectsWith(target.Bounds)) return true;
+                taskbar = window;
+                return false;
+            }, IntPtr.Zero);
             if (taskbar == IntPtr.Zero) return false;
+
+            NativeMethods.Rect taskbarBounds;
+            if (!NativeMethods.GetWindowRect(taskbar, out taskbarBounds)) return false;
             IntPtr notificationArea = NativeMethods.FindWindowEx(taskbar, IntPtr.Zero, "TrayNotifyWnd", null);
-            if (notificationArea == IntPtr.Zero) return false;
-            NativeMethods.Rect bounds;
-            if (!NativeMethods.GetWindowRect(notificationArea, out bounds)) return false;
-            if (bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top) return false;
-            rectangle = Rectangle.FromLTRB(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+            if (notificationArea != IntPtr.Zero)
+            {
+                NativeMethods.Rect bounds;
+                if (NativeMethods.GetWindowRect(notificationArea, out bounds) && bounds.Right > bounds.Left && bounds.Bottom > bounds.Top)
+                {
+                    rectangle = Rectangle.FromLTRB(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+                    return true;
+                }
+            }
+
+            if (taskbarBounds.Right <= taskbarBounds.Left || taskbarBounds.Bottom <= taskbarBounds.Top) return false;
+            int taskbarHeight = taskbarBounds.Bottom - taskbarBounds.Top;
+            int reservedForClock = Math.Max(180, (int)Math.Round(180.0 * taskbarHeight / StandardTaskbarHeight));
+            int anchorRight = taskbarBounds.Right - reservedForClock;
+            rectangle = Rectangle.FromLTRB(anchorRight - 12, taskbarBounds.Top, anchorRight, taskbarBounds.Bottom);
             return true;
+        }
+
+        private bool IsTaskbarCovered(Rectangle anchor)
+        {
+            if (showOverFullscreen) return false;
+            IntPtr foreground = NativeMethods.GetForegroundWindow();
+            if (foreground == IntPtr.Zero) return false;
+            IntPtr taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
+            if (foreground == taskbar) return false;
+
+            StringBuilder className = new StringBuilder(64);
+            NativeMethods.GetClassName(foreground, className, className.Capacity);
+            string value = className.ToString();
+            if (value == "Progman" || value == "WorkerW" || value == "Shell_TrayWnd") return false;
+
+            NativeMethods.Rect bounds;
+            if (!NativeMethods.GetWindowRect(foreground, out bounds)) return false;
+            int sampleX = anchor.Left + anchor.Width / 2;
+            int sampleY = anchor.Top + anchor.Height / 2;
+            return sampleX >= bounds.Left && sampleX < bounds.Right && sampleY >= bounds.Top && sampleY < bounds.Bottom;
         }
 
         protected override void OnPaint(PaintEventArgs args)
@@ -391,6 +455,8 @@ namespace RazerBatteryMonitor
 
         private static class NativeMethods
         {
+            internal delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+
             [StructLayout(LayoutKind.Sequential)]
             internal struct Rect { internal int Left, Top, Right, Bottom; }
 
@@ -402,7 +468,17 @@ namespace RazerBatteryMonitor
 
             [DllImport("user32.dll")]
             [return: MarshalAs(UnmanagedType.Bool)]
+            internal static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
+
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
             internal static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
+
+            [DllImport("user32.dll")]
+            internal static extern IntPtr GetForegroundWindow();
+
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            internal static extern int GetClassName(IntPtr window, StringBuilder className, int maximumCount);
         }
 
     }

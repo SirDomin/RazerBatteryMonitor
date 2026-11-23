@@ -9,13 +9,18 @@ namespace RazerBatteryMonitor
     {
         private readonly FlowLayoutPanel list;
         private readonly Label updated;
+        private readonly ComboBox monitorSelector;
+        private readonly CheckBox fullscreenOverlay;
+        private bool loadingSettings;
+
+        internal event Action<string, bool> OverlaySettingsChanged;
 
         internal DashboardForm()
         {
             Text = "Razer Battery Monitor";
-            Width = 580;
-            Height = 430;
-            MinimumSize = new Size(520, 360);
+            Width = 620;
+            Height = 520;
+            MinimumSize = new Size(560, 450);
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96f, 96f);
@@ -25,10 +30,50 @@ namespace RazerBatteryMonitor
 
             Label title = new Label { Text = "Bateria urządzeń bezprzewodowych", AutoSize = true, Font = new Font("Segoe UI Semibold", 16f), Location = new Point(18, 16) };
             updated = new Label { Text = "Oczekiwanie na odczyt…", AutoSize = true, ForeColor = Color.FromArgb(160, 160, 165), Location = new Point(21, 50) };
-            list = new FlowLayoutPanel { Location = new Point(16, 82), Size = new Size(530, 300), Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true };
+            list = new FlowLayoutPanel { Location = new Point(16, 82), Size = new Size(570, 300), Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true };
+            Panel settingsPanel = new Panel { Location = new Point(16, 394), Size = new Size(570, 80), Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right, BackColor = Color.FromArgb(31, 31, 35) };
+            Label monitorLabel = new Label { Text = "Monitor paska:", AutoSize = true, Location = new Point(12, 14), ForeColor = Color.FromArgb(205, 205, 210) };
+            monitorSelector = new ComboBox { Location = new Point(132, 10), Width = 270, DropDownStyle = ComboBoxStyle.DropDownList };
+            fullscreenOverlay = new CheckBox { Text = "Pokazuj wskaźniki nad grami pełnoekranowymi", AutoSize = true, Location = new Point(12, 48), ForeColor = Color.White };
+            monitorSelector.SelectedIndexChanged += delegate { RaiseSettingsChanged(); };
+            fullscreenOverlay.CheckedChanged += delegate { RaiseSettingsChanged(); };
+            settingsPanel.Controls.Add(monitorLabel);
+            settingsPanel.Controls.Add(monitorSelector);
+            settingsPanel.Controls.Add(fullscreenOverlay);
             Controls.Add(title);
             Controls.Add(updated);
             Controls.Add(list);
+            Controls.Add(settingsPanel);
+        }
+
+        internal void ConfigureSettings(string monitorDeviceName, bool showOverFullscreen)
+        {
+            loadingSettings = true;
+            monitorSelector.Items.Clear();
+            Screen[] screens = Screen.AllScreens;
+            int selectedIndex = -1;
+            for (int index = 0; index < screens.Length; index++)
+            {
+                Screen screen = screens[index];
+                int slash = screen.DeviceName.LastIndexOf('\\');
+                string identifier = slash >= 0 ? screen.DeviceName.Substring(slash + 1) : screen.DeviceName;
+                string label = (screen.Primary ? "Główny" : "Dodatkowy") + " — " + identifier;
+                MonitorChoice choice = new MonitorChoice(screen.DeviceName,
+                    string.Format("{0} ({1}×{2})", label, screen.Bounds.Width, screen.Bounds.Height));
+                monitorSelector.Items.Add(choice);
+                if (string.Equals(screen.DeviceName, monitorDeviceName, StringComparison.OrdinalIgnoreCase)) selectedIndex = index;
+            }
+            if (monitorSelector.Items.Count > 0) monitorSelector.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+            fullscreenOverlay.Checked = showOverFullscreen;
+            loadingSettings = false;
+        }
+
+        private void RaiseSettingsChanged()
+        {
+            if (loadingSettings) return;
+            MonitorChoice choice = monitorSelector.SelectedItem as MonitorChoice;
+            Action<string, bool> handler = OverlaySettingsChanged;
+            if (choice != null && handler != null) handler(choice.DeviceName, fullscreenOverlay.Checked);
         }
 
         internal void UpdateStates(IList<DeviceState> states)
@@ -91,6 +136,20 @@ namespace RazerBatteryMonitor
             if (state.Level.Value <= 10) return Color.FromArgb(255, 70, 70);
             if (state.Level.Value <= 25) return Color.FromArgb(255, 177, 46);
             return Color.White;
+        }
+
+        private sealed class MonitorChoice
+        {
+            internal readonly string DeviceName;
+            private readonly string label;
+
+            internal MonitorChoice(string deviceName, string label)
+            {
+                DeviceName = deviceName;
+                this.label = label;
+            }
+
+            public override string ToString() { return label; }
         }
     }
 }
