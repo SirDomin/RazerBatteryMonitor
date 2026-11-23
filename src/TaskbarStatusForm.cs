@@ -106,10 +106,10 @@ namespace RazerBatteryMonitor
             Width = LogicalSegmentWidth;
             Height = LogicalWindowHeight;
             valueFont = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold, GraphicsUnit.Point);
-            mouseAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.mouse.png", 48);
-            headsetAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.headset.png", 180);
-            steelSeriesAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.steelseries.png", 180);
-            deathAdderAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.deathadder.png", 200);
+            mouseAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.mouse.png", 48, false);
+            headsetAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.headset.png", 220, true);
+            steelSeriesAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.steelseries.png", 220, true);
+            deathAdderAsset = LoadCleanIcon("RazerBatteryMonitor.Assets.deathadder.png", 200, false);
 
             MouseClick += delegate(object sender, MouseEventArgs args)
             {
@@ -272,6 +272,15 @@ namespace RazerBatteryMonitor
         private bool IsTaskbarCovered(Rectangle anchor)
         {
             if (showOverFullscreen) return false;
+            int sampleX = anchor.Left + anchor.Width / 2;
+            int sampleY = anchor.Top + anchor.Height / 2;
+            IntPtr pointWindow = NativeMethods.WindowFromPoint(new NativePoint(sampleX, sampleY));
+            IntPtr pointRoot = NativeMethods.GetAncestor(pointWindow, 2);
+            StringBuilder pointClassName = new StringBuilder(64);
+            NativeMethods.GetClassName(pointRoot, pointClassName, pointClassName.Capacity);
+            string pointClass = pointClassName.ToString();
+            if (pointClass == "Shell_TrayWnd" || pointClass == "Shell_SecondaryTrayWnd") return false;
+
             IntPtr foreground = NativeMethods.GetForegroundWindow();
             if (foreground == IntPtr.Zero) return false;
             IntPtr taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
@@ -280,12 +289,10 @@ namespace RazerBatteryMonitor
             StringBuilder className = new StringBuilder(64);
             NativeMethods.GetClassName(foreground, className, className.Capacity);
             string value = className.ToString();
-            if (value == "Progman" || value == "WorkerW" || value == "Shell_TrayWnd") return false;
+            if (value == "Progman" || value == "WorkerW" || value == "Shell_TrayWnd" || value == "Shell_SecondaryTrayWnd") return false;
 
             NativeMethods.Rect bounds;
             if (!NativeMethods.GetWindowRect(foreground, out bounds)) return false;
-            int sampleX = anchor.Left + anchor.Width / 2;
-            int sampleY = anchor.Top + anchor.Height / 2;
             return sampleX >= bounds.Left && sampleX < bounds.Right && sampleY >= bounds.Top && sampleY < bounds.Bottom;
         }
 
@@ -348,7 +355,7 @@ namespace RazerBatteryMonitor
             using (SolidBrush brush = new SolidBrush(color))
             {
                 Rectangle iconBounds = new Rectangle(x, ScaleLogical(2), ScaleLogical(LogicalIconSize), ScaleLogical(LogicalIconSize));
-                DrawOriginalIcon(graphics, AssetFor(state), iconBounds);
+                DrawOriginalIcon(graphics, AssetFor(state), iconBounds, state.Kind == DeviceKind.Mouse ? 2 : 1);
 
                 string text = state.Level.Value.ToString() + "%";
                 using (StringFormat format = (StringFormat)StringFormat.GenericTypographic.Clone())
@@ -368,7 +375,7 @@ namespace RazerBatteryMonitor
             return mouseAsset;
         }
 
-        private static Bitmap LoadCleanIcon(string resourceName, int brightnessThreshold)
+        private static Bitmap LoadCleanIcon(string resourceName, int brightnessThreshold, bool outlineOnly)
         {
             using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
             {
@@ -385,14 +392,23 @@ namespace RazerBatteryMonitor
                         graphics.DrawImage(source, new Rectangle(1, 1, 62, 62));
                     }
 
+                    bool[,] selected = new bool[64, 64];
+                    for (int y = 0; y < 64; y++)
+                    {
+                        for (int x = 0; x < 64; x++)
+                        {
+                            Color pixel = resized.GetPixel(x, y);
+                            int brightness = Math.Max(pixel.R, Math.Max(pixel.G, pixel.B));
+                            selected[x, y] = pixel.A >= 24 && brightness >= brightnessThreshold;
+                        }
+                    }
+
                     Bitmap cleaned = new Bitmap(64, 64, PixelFormat.Format32bppArgb);
                     for (int y = 0; y < cleaned.Height; y++)
                     {
                         for (int x = 0; x < cleaned.Width; x++)
                         {
-                            Color pixel = resized.GetPixel(x, y);
-                            int brightness = Math.Max(pixel.R, Math.Max(pixel.G, pixel.B));
-                            if (pixel.A >= 24 && brightness >= brightnessThreshold) cleaned.SetPixel(x, y, Color.White);
+                            if (selected[x, y] && (!outlineOnly || IsMaskEdge(selected, x, y))) cleaned.SetPixel(x, y, Color.White);
                         }
                     }
                     return cleaned;
@@ -400,7 +416,22 @@ namespace RazerBatteryMonitor
             }
         }
 
-        private static void DrawOriginalIcon(Graphics graphics, Bitmap image, Rectangle destination)
+        private static bool IsMaskEdge(bool[,] mask, int x, int y)
+        {
+            for (int offsetY = -1; offsetY <= 1; offsetY++)
+            {
+                for (int offsetX = -1; offsetX <= 1; offsetX++)
+                {
+                    int sampleX = x + offsetX;
+                    int sampleY = y + offsetY;
+                    if (sampleX < 0 || sampleY < 0 || sampleX >= mask.GetLength(0) || sampleY >= mask.GetLength(1)) return true;
+                    if (!mask[sampleX, sampleY]) return true;
+                }
+            }
+            return false;
+        }
+
+        private static void DrawOriginalIcon(Graphics graphics, Bitmap image, Rectangle destination, int passes)
         {
             if (image == null) return;
             InterpolationMode interpolation = graphics.InterpolationMode;
@@ -409,8 +440,7 @@ namespace RazerBatteryMonitor
             graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
             graphics.CompositingQuality = CompositingQuality.HighQuality;
             graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            graphics.DrawImage(image, destination);
-            graphics.DrawImage(image, destination);
+            for (int pass = 0; pass < passes; pass++) graphics.DrawImage(image, destination);
             graphics.InterpolationMode = interpolation;
             graphics.CompositingQuality = compositing;
             graphics.PixelOffsetMode = pixelOffset;
@@ -476,6 +506,12 @@ namespace RazerBatteryMonitor
 
             [DllImport("user32.dll")]
             internal static extern IntPtr GetForegroundWindow();
+
+            [DllImport("user32.dll")]
+            internal static extern IntPtr WindowFromPoint(NativePoint point);
+
+            [DllImport("user32.dll")]
+            internal static extern IntPtr GetAncestor(IntPtr window, uint flags);
 
             [DllImport("user32.dll", CharSet = CharSet.Unicode)]
             internal static extern int GetClassName(IntPtr window, StringBuilder className, int maximumCount);
