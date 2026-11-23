@@ -22,6 +22,7 @@ namespace RazerBatteryMonitor
             monitor = new MonitorService();
             states = new List<DeviceState>();
             dashboard = new DashboardForm();
+            if (dashboard.Handle == IntPtr.Zero) throw new InvalidOperationException("The dashboard window could not be initialized.");
             dashboard.FormClosing += delegate(object sender, FormClosingEventArgs args) { args.Cancel = true; dashboard.Hide(); };
 
             ContextMenuStrip menu = new ContextMenuStrip();
