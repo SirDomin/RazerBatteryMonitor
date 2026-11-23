@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+$wpf = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\WPF'
 if (!(Test-Path -LiteralPath $csc)) {
     throw 'The built-in .NET Framework C# compiler was not found.'
 }
@@ -23,7 +24,10 @@ $args = @(
     '/reference:System.dll',
     '/reference:System.Core.dll',
     '/reference:System.Drawing.dll',
-    '/reference:System.Windows.Forms.dll'
+    '/reference:System.Windows.Forms.dll',
+    ('/reference:' + (Join-Path $wpf 'UIAutomationClient.dll')),
+    ('/reference:' + (Join-Path $wpf 'UIAutomationTypes.dll')),
+    ('/reference:' + (Join-Path $wpf 'WindowsBase.dll'))
 ) + $sources
 
 & $csc @args

@@ -6,9 +6,10 @@ Small, read-only Windows tray monitor made for:
 - Razer DeathAdder V3 Pro (`1532:00B6/00B7` and `1532:00C2/00C3` variants);
 - Razer Kraken V3 Pro through the local Razer Synapse status log.
 
-The application creates two notification-area icons: a mouse and a headset.
-Each icon contains the current percentage; a lightning mark means charging.
-Click either icon to open the complete device list.
+The application places compact mouse and headset indicators directly beside
+the notification-area chevron. Each indicator contains a readable percentage;
+a lightning mark means charging. An indicator disappears completely while its
+device is offline. Click an indicator to open the complete device list.
 
 Run with `--show` to open the device list immediately; without it the app
 starts quietly in the notification area.
@@ -17,6 +18,7 @@ starts quietly in the notification area.
 
 - No administrator rights. The manifest explicitly requests `asInvoker`.
 - No network, telemetry, updater, installer, service, or driver.
+- It only reads the chevron position; it does not modify taskbar settings.
 - Mouse communication is restricted to known Razer VID/PID pairs.
 - Only Razer getter commands `07/80` (battery) and `07/84` (charging) are sent.
 - Kraken V3 Pro support only reads Synapse's local log. No experimental headset
