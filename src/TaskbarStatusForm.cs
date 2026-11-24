@@ -363,7 +363,7 @@ namespace RazerBatteryMonitor
                     format.FormatFlags |= StringFormatFlags.NoWrap;
                     graphics.DrawString(text, valueFont, brush, new PointF(x + ScaleLogical(25), ScaleLogical(5)), format);
                 }
-                if (state.IsCharging) DrawBolt(graphics, brush, x + ScaleLogical(63), ScaleLogical(5));
+                if (state.IsCharging && !state.IsStale) DrawBolt(graphics, brush, x + ScaleLogical(63), ScaleLogical(5));
             }
         }
 
@@ -448,7 +448,7 @@ namespace RazerBatteryMonitor
 
         private static Color StateColor(DeviceState state)
         {
-            if (state.IsCharging) return Color.FromArgb(75, 255, 35);
+            if (state.IsCharging && !state.IsStale) return Color.FromArgb(75, 255, 35);
             if (state.Level.Value <= 10) return Color.FromArgb(255, 80, 80);
             if (state.Level.Value <= 25) return Color.FromArgb(255, 190, 55);
             return Color.White;

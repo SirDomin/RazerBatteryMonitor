@@ -30,7 +30,7 @@ namespace RazerBatteryMonitor
         public string ShortStatus()
         {
             if (!IsOnline || !Level.HasValue) return "brak danych";
-            return string.Format("{0}%{1}", Level.Value, IsCharging ? " · ładowanie" : string.Empty);
+            return string.Format("{0}%{1}", Level.Value, IsCharging && !IsStale ? " · ładowanie" : string.Empty);
         }
     }
 }

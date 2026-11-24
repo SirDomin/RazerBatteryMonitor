@@ -10,6 +10,7 @@ $sources = @(
     (Join-Path $root 'src\RazerProtocol.cs'),
     (Join-Path $root 'src\SteelSeriesProtocol.cs'),
     (Join-Path $root 'src\SynapseLogReader.cs'),
+    (Join-Path $root 'src\UsbDevicePresence.cs'),
     (Join-Path $root 'tests\ProtocolTests.cs')
 )
 

@@ -57,3 +57,8 @@ Razer Synapse can hold a mouse control interface. When a recent Synapse battery
 event is available, the program uses that read-only source first. Direct HID is
 used for supported mice when no fresh local Synapse value is available.
 
+For Kraken V3 Pro, the last saved battery percentage remains visible while
+Windows still detects the headset USB device (`1532:052C`). A stale reading is
+shown without a charging mark, because an old log cannot confirm the current
+charging state. The indicator disappears after the USB device is disconnected.
+

@@ -116,9 +116,11 @@ namespace RazerBatteryMonitor
 
             Label glyph = new Label { Text = state.Kind == DeviceKind.Mouse ? "M" : "H", Dock = DockStyle.Fill, Margin = Padding.Empty, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI Semibold", 13f), ForeColor = Color.FromArgb(57, 255, 20) };
             Label name = new Label { Text = state.Name, Dock = DockStyle.Fill, Margin = Padding.Empty, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI Semibold", 10f) };
-            string detail = state.IsOnline ? (state.IsCharging ? "Ładowanie" : "Nie ładuje") : "Offline / brak świeżych danych";
+            string detail = state.IsOnline && state.IsStale
+                ? string.Format("Ostatni odczyt {0:HH:mm} · urządzenie podłączone", state.UpdatedAt)
+                : state.IsOnline ? (state.IsCharging ? "Ładowanie" : "Nie ładuje") : "Offline / brak świeżych danych";
             Label status = new Label { Text = detail + " · " + state.Source, Dock = DockStyle.Fill, Margin = Padding.Empty, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(165, 165, 170), Font = new Font("Segoe UI", 8.5f) };
-            Label level = new Label { Text = state.Level.HasValue ? string.Format("{0}%{1}", state.Level.Value, state.IsCharging ? " ⚡" : "") : "--%", Dock = DockStyle.Fill, Margin = Padding.Empty, TextAlign = ContentAlignment.MiddleRight, Font = new Font("Segoe UI Semibold", 15f), ForeColor = StateColor(state) };
+            Label level = new Label { Text = state.Level.HasValue ? string.Format("{0}%{1}", state.Level.Value, state.IsCharging && !state.IsStale ? " ⚡" : "") : "--%", Dock = DockStyle.Fill, Margin = Padding.Empty, TextAlign = ContentAlignment.MiddleRight, Font = new Font("Segoe UI Semibold", 15f), ForeColor = StateColor(state) };
             layout.Controls.Add(glyph, 0, 0);
             layout.SetRowSpan(glyph, 2);
             layout.Controls.Add(name, 1, 0);
@@ -132,7 +134,7 @@ namespace RazerBatteryMonitor
         private static Color StateColor(DeviceState state)
         {
             if (!state.IsOnline || !state.Level.HasValue) return Color.Gray;
-            if (state.IsCharging) return Color.FromArgb(57, 255, 20);
+            if (state.IsCharging && !state.IsStale) return Color.FromArgb(57, 255, 20);
             if (state.Level.Value <= 10) return Color.FromArgb(255, 70, 70);
             if (state.Level.Value <= 25) return Color.FromArgb(255, 177, 46);
             return Color.White;

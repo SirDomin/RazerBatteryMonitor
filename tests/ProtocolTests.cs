@@ -71,11 +71,19 @@ internal static class ProtocolTests
         Assert(!offline.IsConnected, "SteelSeries disconnected status");
     }
 
+    private static void UsbPresenceMatching()
+    {
+        Assert(UsbDevicePresence.MatchesInstanceId(@"USB\VID_1532&PID_052C&MI_04\7&ABC&0&0004", 0x1532, 0x052C), "Kraken USB instance match");
+        Assert(UsbDevicePresence.MatchesInstanceId(@"hid\vid_1532&pid_052c\sample", 0x1532, 0x052C), "USB instance match is case-insensitive");
+        Assert(!UsbDevicePresence.MatchesInstanceId(@"USB\VID_1532&PID_00B7\sample", 0x1532, 0x052C), "wrong product is rejected");
+    }
+
     public static int Main()
     {
         Protocol();
         SteelSeries();
         LogParsing();
+        UsbPresenceMatching();
         if (failures != 0) return 1;
         Console.WriteLine("All protocol and log parsing tests passed.");
         return 0;

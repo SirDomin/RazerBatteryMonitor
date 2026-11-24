@@ -19,6 +19,12 @@ namespace RazerBatteryMonitor
             if (naga.IsOnline || naga.Level.HasValue) states.Add(naga);
 
             DeviceState kraken = SynapseLogReader.ReadProduct(1325, "Razer Kraken V3 Pro", DeviceKind.Headset);
+            if (!kraken.IsOnline && kraken.Level.HasValue && UsbDevicePresence.IsPresent(0x1532, 0x052C))
+            {
+                kraken.IsOnline = true;
+                kraken.IsStale = true;
+                kraken.Error = "Pokazywany jest ostatni zapisany odczyt.";
+            }
             if (kraken.IsOnline || kraken.Level.HasValue) states.Add(kraken);
 
             DeviceState deathAdder = ReadDeathAdderLog();
